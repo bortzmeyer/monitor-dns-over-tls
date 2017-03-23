@@ -7,7 +7,7 @@ DNS-over-TLS is specified in
 [RFC 7858](https://www.rfc-editor.org/info/rfc7858).
 
 The idea is to allow DNS-over-TLS service monitoring, creating a
-[monitoring plugin)(https://www.monitoring-plugins.org/) (suitable for [Nagios](https://www.nagios.org/)
+[monitoring plugin](https://www.monitoring-plugins.org/) (suitable for [Nagios](https://www.nagios.org/)
 or compatible like [Icinga](https://www.icinga.com/)). 
 
 ## Choices
@@ -22,7 +22,8 @@ plugins written in Go? TODO: is it possible to follow exactly the
 rules of the Nagios API in Go (command-line arguments, for instance?)
 
 Second possibility: C and [getdns](https://getdnsapi.net/). TODO:
-see how to extract key and cert info from a session. 
+see how to extract key and cert info from a session. TODO: a good
+example in C? Probably use one of the monitoring plugins.
 
 ## Requirments
 
