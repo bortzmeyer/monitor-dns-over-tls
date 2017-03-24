@@ -179,7 +179,17 @@ main(int argc, char **argv)
         getdns_context_destroy(this_context);
         return (GETDNS_RETURN_GENERIC_ERROR);
     }
-      
+
+    getdns_return_t set_stub_return = getdns_context_set_resolution_type(
+     this_context,
+     GETDNS_RESOLUTION_STUB);
+    if (set_stub_return != GETDNS_RETURN_GOOD) {
+      fprintf(stderr, "Unable to set to stub mode: %s. Exiting.\n", getdns_get_errorstr_by_id(set_stub_return));
+        getdns_context_destroy(this_context);
+        return (GETDNS_RETURN_GENERIC_ERROR);
+    }
+
+    printf("DEBUG: context is %s\n", getdns_pretty_print_dict(getdns_context_get_api_information(this_context)));
     /* Make the call */
     dns_request_return = getdns_address_sync(this_context, this_name,
                                                              (getdns_dict *) NULL,

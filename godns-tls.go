@@ -43,6 +43,7 @@ func main() {
 		fmt.Printf("(time %.3d µs) %d keys. TC=%v\n", rtt/1e3, len(in.Answer), in.Truncated)
 	} else {
 		if err != nil {
+			// TODO proper monitoring plugin formatting
 			fmt.Printf("Error in query: %s\n", err)
 		} else if in == nil {
 			fmt.Printf("No answer received\n")
