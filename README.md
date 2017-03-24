@@ -27,4 +27,4 @@ example in C? Probably use one of the monitoring plugins.
 
 ## Requirments
 
-Must be able to specify: DNS query name, DNS Query Type, expiration date for the cert (like the [check_http plugin](https://www.monitoring-plugins.org/doc/man/check_http.html)), the pinned key… Bonus: being able to test the TLS configuration (no weak cipher, etc)
+Must be able to specify: resolver, of course, but also DNS query name, DNS Query Type, expiration date for the cert (like the [check_http plugin](https://www.monitoring-plugins.org/doc/man/check_http.html)), the pinned key… Bonus: being able to test the TLS configuration (no weak cipher, etc)
