@@ -25,13 +25,17 @@ rules of the Nagios API in Go (command-line arguments, for instance?)
 TODO: once done, publish on [Monitoring Exchange](http://monitoringexchange.org)
 
 Second possibility: C and [getdns](https://getdnsapi.net/). TODO:
-see how to extract key and cert info from a session. TODO: a good
+see how to extract key and cert info from a session. Do a second
+connection with GnuTLS (there is a risk to go to a different server…)
+Or ask getdns to provide the raw cert in the JSON answer (TODO: format
+wishlist report) TODO: a good
 example in C? Probably use one of the monitoring
 plugins. `check_dummy.c` is a good starting point (specially for the
 standard command-line arguments), `check_http.c` a more complete
 one. An advantage of using C is that we may rely on monitoring
 plugins' utilities such as the `np_net_ssl_check_cert()` function in
-`plugins/sslutils.c`, to check the expiration date.
+`plugins/sslutils.c`, to check the expiration date. To get the RTT,
+getdns can do it (`return_call_reporting` extension).
 
 
 ## Requirments
