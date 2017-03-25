@@ -42,6 +42,7 @@ const char     *email = "bortzmeyer@nic.fr";    /* Later
                                                  * "devel@monitoring-plugins.org" */
 #define PREFIX "GETDNS"
 
+int             debug = FALSE;
 int             specify_port = FALSE;
 int             server_port = 853;
 char            server_port_text[6] = "";
@@ -139,7 +140,8 @@ main(int argc, char **argv)
 
 /* TODO add standard long options */
     static struct option longopts[] = {
-        {"port", required_argument, 0, 'p'},
+        {"debug", no_argument, 0, 'd'},
+        {"port", required_argument, 0, 'p'},    /* TODO actually implement it */
         {"name", required_argument, 0, 'n'},
         {0, 0, 0, 0}
     };
@@ -148,7 +150,7 @@ main(int argc, char **argv)
     int             option = 0;
     char           *p;
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?H:n:p:", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -161,6 +163,9 @@ main(int argc, char **argv)
             usage("");          /* TODO more detailed help */
             exit(STATE_OK);
             break;
+        case 'd':              /* debug */
+            debug = TRUE;
+            break;
         case 'V':              /* version */
             usage("TODO not yet implemented.");
             exit(STATE_OK);
@@ -168,7 +173,7 @@ main(int argc, char **argv)
         case 'n':              /* Name to lookup */
             lookup_name = strdup(optarg);
             break;
-        case 'H':              /* DNS Server to test. Must be an IP address. *
+        case 'H':              /* DNS Server to test. Must be an IP address. * *
                                  * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
@@ -273,6 +278,11 @@ main(int argc, char **argv)
         getdns_dict_set_int(extensions, "return_call_reporting",
                             GETDNS_EXTENSION_TRUE);
     /* TODO test process_return */
+    if (debug) {
+        printf("DEBUG: context is %s\n",
+               getdns_pretty_print_dict(getdns_context_get_api_information
+                                        (this_context)));
+    }
 
     /* Make the call */
     getdns_return_t dns_request_return =
@@ -294,6 +304,10 @@ main(int argc, char **argv)
                                                                                                                                                                  * better 
                                                                                                                                                                  */
         error(msgbuf);
+    }
+
+    if (debug) {
+        printf("DEBUG: response is %s\n", getdns_pretty_print_dict(this_response));
     }
 
     getdns_return_t this_ret;
