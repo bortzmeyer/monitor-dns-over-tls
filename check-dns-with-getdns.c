@@ -268,7 +268,7 @@ main(int argc, char **argv)
 
     /* Extensions */
     getdns_dict    *extensions = getdns_dict_create();
-/* process_return = getdns_dict_set_int(extensions, "dnssec_return_status", GETDNS_EXTENSION_TRUE);  TODO too buggy, creates at leats two problems (frozen call to getdns_address_sync and no answers in response */
+/* process_return = getdns_dict_set_int(extensions, "dnssec_return_status", GETDNS_EXTENSION_TRUE);  TODO too buggy, creates at leats two problems (frozen call to getdns_address_sync <https://github.com/getdnsapi/getdns/issues/272> and no answers in response */
     process_return =
         getdns_dict_set_int(extensions, "return_call_reporting",
                             GETDNS_EXTENSION_TRUE);
