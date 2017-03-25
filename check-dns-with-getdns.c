@@ -7,6 +7,9 @@ Stéphane Bortzmeyer <bortzmeyer@nic.fr>
 with help from Willem Toorop <willem@nlnetlabs.nl> and the entire IETF
 98 hackathon */
 
+/* TODO experimental, use autoconf or some other method to see if GNUtls is available. Set to 0 manually, in the time mebing, if you have no GNUtls. */
+#define USE_GNUTLS 1
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -18,9 +21,15 @@ with help from Willem Toorop <willem@nlnetlabs.nl> and the entire IETF
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <time.h>
 
 #include <getdns/getdns.h>
 #include <getdns/getdns_extra.h>
+
+#if USE_GNUTLS
+#include <gnutls/gnutls.h>
+#include <gnutls/x509.h>
+#endif
 
 /* TODO use monitoring plugins common.h instead */
 enum {
@@ -127,7 +136,7 @@ success(char *msg)
     fprintf(stdout, "%s OK - %s\n", PREFIX, msg);
 }
 
-static char     msgbuf[4096];
+static char     msgbuf[4096], msgbuf2[1024];
 
 int
 main(int argc, char **argv)
@@ -173,7 +182,7 @@ main(int argc, char **argv)
         case 'n':              /* Name to lookup */
             lookup_name = strdup(optarg);
             break;
-        case 'H':              /* DNS Server to test. Must be an IP address. * *
+        case 'H':              /* DNS Server to test. Must be an IP address. * * *
                                  * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
@@ -338,6 +347,36 @@ main(int argc, char **argv)
                 getdns_get_errorstr_by_id(this_ret), this_ret);
         internal_error(msgbuf);
     }
+    getdns_bindata *cert;
+    this_ret = getdns_dict_get_bindata(report_dict, "tls_peer_cert", &cert);
+    if (this_ret != GETDNS_RETURN_GOOD) {
+        sprintf(msgbuf, "Trying to get the PKIX certificate failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
+        internal_error(msgbuf);
+    }
+#if USE_GNUTLS
+    gnutls_x509_crt_t parsed_cert;
+    int             gnutls_return;
+    gnutls_return = gnutls_x509_crt_init(&parsed_cert);
+    if (gnutls_return != GNUTLS_E_SUCCESS) {
+        sprintf(msgbuf, "Cannot initialize the PKIX certificate: %s",
+                gnutls_strerror_name(gnutls_return));
+        internal_error(msgbuf);
+    }
+    gnutls_datum_t  raw_cert;
+    raw_cert.size = cert->size;
+    raw_cert.data = malloc(cert->size);
+    memcpy(raw_cert.data, cert->data, cert->size);
+    gnutls_return =
+        gnutls_x509_crt_import(parsed_cert, &raw_cert, GNUTLS_X509_FMT_DER);
+    if (gnutls_return != GNUTLS_E_SUCCESS) {
+        sprintf(msgbuf, "Cannot parse the PKIX certificate of %s: %s", server_name,
+                gnutls_strerror_name(gnutls_return));
+        error(msgbuf);
+    }
+    time_t          expiration_time;
+    expiration_time = gnutls_x509_crt_get_expiration_time(parsed_cert);
+#endif
     getdns_list    *just_the_addresses_ptr;     /* TODO allow to specify other DNS
                                                  * types */
     this_ret =
@@ -355,7 +394,13 @@ main(int argc, char **argv)
         warning(msgbuf);
     }
     /* Go through each record */
+#ifdef USE_GNUTLS
+    struct tm      *f_time = gmtime(&expiration_time);
+    strftime(msgbuf2, 1000, "%Y-%M-%d", f_time);
+    sprintf(msgbuf, "%d ms, expiration date %s: ", rtt, msgbuf2);
+#else
     sprintf(msgbuf, "%d ms: ", rtt);
+#endif
     for (size_t rec_count = 0; rec_count < num_addresses; ++rec_count) {
         getdns_dict    *this_address;
         this_ret =

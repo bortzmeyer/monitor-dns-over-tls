@@ -1,5 +1,5 @@
-CFLAGS=-std=c99 -Wall -Wextra
-LDFLAGS=-L/usr/local/lib -lgetdns
+CFLAGS=-O0 -g -std=c99 -Wall -Wextra
+LDFLAGS=-L/usr/local/lib -lgetdns -L/usr/lib -lgnutls
 #LDFLAGS=-lgetdns
 EXES=check-dns-with-getdns getdns-tls godns-tls
 
