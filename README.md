@@ -7,8 +7,12 @@ DNS-over-TLS is specified in
 [RFC 7858](https://www.rfc-editor.org/info/rfc7858).
 
 The idea is to allow DNS-over-TLS service monitoring, creating a
-[monitoring plugin](https://www.monitoring-plugins.org/) (suitable for [Nagios](https://www.nagios.org/)
-or compatible like [Icinga](https://www.icinga.com/)). 
+[monitoring plugin](https://www.monitoring-plugins.org/) (suitable for
+[Nagios](https://www.nagios.org/)
+or compatible like [Icinga](https://www.icinga.com/) by following [their API](https://assets.nagios.com/downloads/nagioscore/docs/nagioscore/3/en/pluginapi.html)). 
+
+We'll test with [the public DNS-over-TLS
+resolvers](https://portal.sinodun.com/wiki/display/TDNS/DNS-over-TLS+test+servers).
 
 ## Choices
 
@@ -16,7 +20,10 @@ First possibility: use [Go](https://golang.org/) because it has both a
 [nice DNS library](https://miek.nl/2014/August/16/go-dns-package/) and
 a
 [good TLS standard package](https://golang.org/pkg/crypto/tls/). TODO:
-see how to extract key and cert info from a session. TODO: what are
+see how to extract key and cert info from a session (parse the `conn`
+object? See [HTTP package](https://golang.org/pkg/net/http) to be
+sure. With the help of
+te [TLS package](https://golang.org/pkg/crypto/tls/)?). TODO: what are
 the policy rules for the monitoring plugins project? (See the `CODING`
 file in the source distribution, it is mostly source code presentation
 details.) Do they accept
