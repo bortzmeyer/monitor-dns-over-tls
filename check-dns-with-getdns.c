@@ -168,7 +168,7 @@ main(int argc, char **argv)
         case 'n':              /* Name to lookup */
             lookup_name = strdup(optarg);
             break;
-        case 'H':              /* DNS Server to test. Must be an IP address.
+        case 'H':              /* DNS Server to test. Must be an IP address. *
                                  * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
@@ -202,7 +202,8 @@ main(int argc, char **argv)
     getdns_context *this_context = NULL;
     getdns_return_t context_create_return = getdns_context_create(&this_context, 1);
     if (context_create_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Trying to create the context failed: %d",
+        sprintf(msgbuf, "Trying to create the context failed: %s (%d)",
+                getdns_get_errorstr_by_id(context_create_return),
                 context_create_return);
         internal_error(msgbuf);
     }
@@ -215,12 +216,12 @@ main(int argc, char **argv)
                                                                                          * *
                                                                                          * requires
                                                                                          * * getdns
-                                                                                         * >= * 1.1 
-                                                                                         */
+                                                                                         * >= * 1.1 */
     if (process_return != GETDNS_RETURN_GOOD) {
         sprintf(msgbuf,
-                "Unable to convert %s to bindata: %d (we accept only IP addresses, not names)",
-                server_name, process_return);
+                "Unable to convert %s to bindata: %s (%d) (we accept only IP addresses, not names)",
+                server_name, getdns_get_errorstr_by_id(process_return),
+                process_return);
         internal_error(msgbuf);
     }
 
@@ -231,7 +232,8 @@ main(int argc, char **argv)
                                               1,        /* Just one transport */
                                               this_transport);
     if (transport_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Unable to set TLS transport: %d.", transport_return);
+        sprintf(msgbuf, "Unable to set TLS transport: %s (%d).",
+                getdns_get_errorstr_by_id(transport_return), transport_return);
         internal_error(msgbuf);
     }
 
@@ -240,16 +242,18 @@ main(int argc, char **argv)
     getdns_return_t list_set_return =
         getdns_list_set_dict(this_list, 0, this_resolver);
     if (list_set_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Unable to add \"%s\" to the list: %d",
-                server_name, list_set_return);
+        sprintf(msgbuf, "Unable to add \"%s\" to the list: %s (%d)",
+                server_name, getdns_get_errorstr_by_id(list_set_return),
+                list_set_return);
         internal_error(msgbuf);
     }
     getdns_return_t set_resolver_return =
         getdns_context_set_upstream_recursive_servers(this_context,
                                                       this_list);
     if (set_resolver_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Unable to set TLS upstream resolver: %s. Exiting.\n",
-                getdns_get_errorstr_by_id(set_resolver_return));
+        sprintf(msgbuf, "Unable to set TLS upstream resolver %s: %s (%d)",
+                server_name, getdns_get_errorstr_by_id(set_resolver_return),
+                set_resolver_return);
         internal_error(msgbuf);
     }
 
@@ -257,24 +261,38 @@ main(int argc, char **argv)
         getdns_context_set_resolution_type(this_context,
                                            GETDNS_RESOLUTION_STUB);
     if (set_stub_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Unable to set to stub mode: %s. Exiting.\n",
-                getdns_get_errorstr_by_id(set_stub_return));
+        sprintf(msgbuf, "Unable to set to stub mode: %s (%d)",
+                getdns_get_errorstr_by_id(set_stub_return), set_stub_return);
         internal_error(msgbuf);
     }
+
+    /* Extensions */
+    getdns_dict    *extensions = getdns_dict_create();
+/* process_return = getdns_dict_set_int(extensions, "dnssec_return_status", GETDNS_EXTENSION_TRUE);  TODO too buggy, creates at leats two problems (frozen call to getdns_address_sync and no answers in response */
+    process_return =
+        getdns_dict_set_int(extensions, "return_call_reporting",
+                            GETDNS_EXTENSION_TRUE);
+    /* TODO test process_return */
 
     /* Make the call */
     getdns_return_t dns_request_return =
         getdns_address_sync(this_context, lookup_name,
-                            (getdns_dict *) NULL, &this_response);
+                            extensions, &this_response);
     if (dns_request_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Error %d when resolving %s at %s", dns_request_return, lookup_name, server_name);      /* TODO 
-                                                                                                                 * convert 
-                                                                                                                 * dns_request_return 
-                                                                                                                 * to 
-                                                                                                                 * a 
-                                                                                                                 * correct 
-                                                                                                                 * message 
-                                                                                                                 */
+        sprintf(msgbuf, "Error %s (%d) when resolving %s at %s", getdns_get_errorstr_by_id(dns_request_return), dns_request_return, lookup_name, server_name);  /* TODO 
+                                                                                                                                                                 * Most 
+                                                                                                                                                                 * of 
+                                                                                                                                                                 * the 
+                                                                                                                                                                 * time, 
+                                                                                                                                                                 * we 
+                                                                                                                                                                 * get 
+                                                                                                                                                                 * 1 
+                                                                                                                                                                 * "generic 
+                                                                                                                                                                 * error". 
+                                                                                                                                                                 * Find 
+                                                                                                                                                                 * something 
+                                                                                                                                                                 * better 
+                                                                                                                                                                 */
         error(msgbuf);
     }
 
@@ -286,8 +304,25 @@ main(int argc, char **argv)
         // "good"
     {
         sprintf(msgbuf,
-                "The search had no results, and a return value of %d", this_error);
+                "The search had no results, and a return value of \"%s\" (%d)",
+                getdns_get_errorstr_by_id(this_error), this_error);
         error(msgbuf);
+    }
+    getdns_list    *report_list;
+    this_ret = getdns_dict_get_list(this_response, "call_reporting", &report_list);
+    if (this_ret != GETDNS_RETURN_GOOD) {
+        sprintf(msgbuf, "Trying to get the report failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
+        internal_error(msgbuf);
+    }
+    getdns_dict    *report_dict;
+    getdns_list_get_dict(report_list, 0, &report_dict); /* TODO test ret code */
+    uint32_t        rtt;
+    this_ret = getdns_dict_get_int(report_dict, "run_time/ms", &rtt);
+    if (this_ret != GETDNS_RETURN_GOOD) {
+        sprintf(msgbuf, "Trying to get the RTT failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
+        internal_error(msgbuf);
     }
     getdns_list    *just_the_addresses_ptr;     /* TODO allow to specify other DNS
                                                  * types */
@@ -295,7 +330,8 @@ main(int argc, char **argv)
         getdns_dict_get_list(this_response, "just_address_answers",
                              &just_the_addresses_ptr);
     if (this_ret != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Trying to get the answers failed: %d\n", this_ret);
+        sprintf(msgbuf, "Trying to get the answers failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
         internal_error(msgbuf);
     }
     size_t          num_addresses;
@@ -305,7 +341,7 @@ main(int argc, char **argv)
         warning(msgbuf);
     }
     /* Go through each record */
-    sprintf(msgbuf, "%s", "");
+    sprintf(msgbuf, "%d ms: ", rtt);
     for (size_t rec_count = 0; rec_count < num_addresses; ++rec_count) {
         getdns_dict    *this_address;
         this_ret =
