@@ -453,7 +453,7 @@ main(int argc, char **argv)
     /* Go through each record */
 #if USE_GNUTLS
     struct tm      *f_time = gmtime(&expiration_time);
-    strftime(msgbuf2, 1000, "%Y-%M-%d", f_time);
+    strftime(msgbuf2, 1000, "%Y-%m-%d", f_time);
     sprintf(msgbuf, "%d ms, expiration date %s: ", rtt, msgbuf2);
 #else
     sprintf(msgbuf, "%d ms: ", rtt);
