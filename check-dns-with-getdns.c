@@ -57,6 +57,10 @@ int             server_port = 853;
 char            server_port_text[6] = "";
 char           *lookup_name = NULL;
 char           *server_name = NULL;
+#if USE_GNUTLS
+int             check_cert = FALSE;
+int             days_till_exp_warn, days_till_exp_crit;
+#endif
 
 /* TODO use monitoring plugins utils.c instead */
 int
@@ -147,19 +151,21 @@ main(int argc, char **argv)
         exit(STATE_UNKNOWN);
     }
 
-/* TODO add standard long options */
+/* TODO add standard long options, which include critical, warning, verbose, etc */
     static struct option longopts[] = {
         {"debug", no_argument, 0, 'd'},
         {"port", required_argument, 0, 'p'},    /* TODO actually implement it */
+        {"hostname", required_argument, 0, 'H'},
         {"name", required_argument, 0, 'n'},
+        {"certificate", required_argument, 0, 'C'},
         {0, 0, 0, 0}
     };
 
     int             c = 1;
     int             option = 0;
-    char           *p;
+    char           *p, *tmp;
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?hdH:n:p:", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -182,8 +188,50 @@ main(int argc, char **argv)
         case 'n':              /* Name to lookup */
             lookup_name = strdup(optarg);
             break;
+        case 'C':              /* Check PKIX cert validity */
+#if USE_GNUTLS
+            if ((tmp = strchr(optarg, ',')) != NULL) {
+                *tmp = '\0';
+                if (!is_intnonneg(optarg)) {
+                    sprintf(msgbuf, "Invalid certificate expiration period %s",
+                            optarg);
+                    usage(msgbuf);
+                    exit(STATE_UNKNOWN);
+                }
+                days_till_exp_warn = atoi(optarg);
+                *tmp = ',';
+                tmp++;
+                if (!is_intnonneg(tmp)) {
+                    sprintf(msgbuf, "Invalid certificate expiration period %s", tmp);
+                    usage(msgbuf);
+                    exit(STATE_UNKNOWN);
+                }
+                days_till_exp_crit = atoi(tmp);
+            } else {
+                days_till_exp_crit = 0;
+                if (!is_intnonneg(optarg)) {
+                    sprintf(msgbuf, "Invalid certificate expiration period %s",
+                            optarg);
+                    usage(msgbuf);
+                    exit(STATE_UNKNOWN);
+                }
+                days_till_exp_warn = atoi(optarg);
+            }
+            if (days_till_exp_warn < days_till_exp_crit) {
+                sprintf(msgbuf,
+                        "Warning certificate expiration threshold must be superior to the critical one (%s)",
+                        optarg);
+                usage(msgbuf);
+                exit(STATE_UNKNOWN);
+            }
+            check_cert = TRUE;
+#else
+            usage("No TLS support compiled :-(");
+            exit(STATE_UNKNOWN);
+#endif
+            break;
         case 'H':              /* DNS Server to test. Must be an IP address. * * *
-                                 * check_dns uses it for the name to lookup */
+                                 * * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
                 if ((p = strstr(server_name, "]:")) != NULL)    /* [IPv6]:port */
@@ -298,20 +346,11 @@ main(int argc, char **argv)
         getdns_address_sync(this_context, lookup_name,
                             extensions, &this_response);
     if (dns_request_return != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Error %s (%d) when resolving %s at %s", getdns_get_errorstr_by_id(dns_request_return), dns_request_return, lookup_name, server_name);  /* TODO 
-                                                                                                                                                                 * Most 
-                                                                                                                                                                 * of 
-                                                                                                                                                                 * the 
-                                                                                                                                                                 * time, 
-                                                                                                                                                                 * we 
-                                                                                                                                                                 * get 
-                                                                                                                                                                 * 1 
-                                                                                                                                                                 * "generic 
-                                                                                                                                                                 * error". 
-                                                                                                                                                                 * Find 
-                                                                                                                                                                 * something 
-                                                                                                                                                                 * better 
-                                                                                                                                                                 */
+        sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
+                getdns_get_errorstr_by_id(dns_request_return), dns_request_return,
+                lookup_name, server_name);
+        /* TODO * Most * of * the * time, * we * get * 1 * "generic *
+         * error". * Find * something * better */
         error(msgbuf);
     }
 
@@ -376,6 +415,24 @@ main(int argc, char **argv)
     }
     time_t          expiration_time;
     expiration_time = gnutls_x509_crt_get_expiration_time(parsed_cert);
+    if (check_cert) {
+        /* TODO do not exit immediately, keep the message and the state */
+        struct timeval  tv;
+        gettimeofday(&tv, NULL);
+        if (expiration_time < tv.tv_sec) {
+            sprintf(msgbuf, "Certificate expired %d days ago",
+                    (int) (tv.tv_sec - expiration_time) / 86400);
+            error(msgbuf);
+        } else if (expiration_time < (tv.tv_sec + days_till_exp_crit * 86400)) {
+            sprintf(msgbuf, "Certificate will expire in %d days",
+                    (int) (expiration_time - tv.tv_sec) / 86400);
+            error(msgbuf);
+        } else if (expiration_time < (tv.tv_sec + days_till_exp_warn * 86400)) {
+            sprintf(msgbuf, "Certificate will expire in %d days",
+                    (int) (expiration_time - tv.tv_sec) / 86400);
+            warning(msgbuf);
+        }
+    }
 #endif
     getdns_list    *just_the_addresses_ptr;     /* TODO allow to specify other DNS
                                                  * types */
@@ -394,7 +451,7 @@ main(int argc, char **argv)
         warning(msgbuf);
     }
     /* Go through each record */
-#ifdef USE_GNUTLS
+#if USE_GNUTLS
     struct tm      *f_time = gmtime(&expiration_time);
     strftime(msgbuf2, 1000, "%Y-%M-%d", f_time);
     sprintf(msgbuf, "%d ms, expiration date %s: ", rtt, msgbuf2);
