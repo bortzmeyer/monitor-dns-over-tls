@@ -20,3 +20,6 @@ all: ${EXES}
 
 clean:
 	rm -f ${EXES} *~ *.o 
+
+install: check-dns-with-getdns
+	cp check-dns-with-getdns /usr/lib/nagios/plugins/check_dns_with_getdns
