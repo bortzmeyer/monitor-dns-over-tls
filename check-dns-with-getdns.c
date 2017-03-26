@@ -59,6 +59,7 @@ char           *lookup_name = NULL;
 char           *server_name = NULL;
 int             require_authentication = FALSE;
 int             authenticate = FALSE;
+int             accept_dns_errors = TRUE;
 getdns_dict    *keys;
 char           *raw_keys;
 #if USE_GNUTLS
@@ -163,6 +164,7 @@ main(int argc, char **argv)
         {"name", required_argument, 0, 'n'},
         {"require_authentication", no_argument, 0, 'r'},
         {"authenticate", no_argument, 0, 'a'},
+        {"accept_dns_errors", no_argument, 0, 'e'},
         {"keys", required_argument, 0, 'k'},
         {"certificate", required_argument, 0, 'C'},
         {0, 0, 0, 0}
@@ -171,8 +173,9 @@ main(int argc, char **argv)
     int             c = 1;
     int             option = 0;
     char           *p, *tmp;
+    /* TODO: it exists with state OK if there is an invalid option */
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:e", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -193,6 +196,9 @@ main(int argc, char **argv)
             break;
         case 'a':              /* Test there is authentication of the TLS server */
             authenticate = TRUE;
+            break;
+        case 'e':              /* Regard NXDOMAIN or SERVFAIL as critical errors */
+            accept_dns_errors = FALSE;
             break;
         case 'V':              /* version */
             sprintf(msgbuf, "getdns %s, API %s.", getdns_get_version(),
@@ -246,7 +252,7 @@ main(int argc, char **argv)
 #endif
             break;
         case 'H':              /* DNS Server to test. Must be an IP address. * * *
-                                 * * * check_dns uses it for the name to lookup */
+                                 * * * * * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
                 if ((p = strstr(server_name, "]:")) != NULL)    /* [IPv6]:port */
@@ -270,6 +276,9 @@ main(int argc, char **argv)
                 specify_port = TRUE;
             }
             break;
+        default:
+            usage("");
+            exit(STATE_UNKNOWN);
         }
     }
 
@@ -441,6 +450,43 @@ main(int argc, char **argv)
     if (this_error != GETDNS_RESPSTATUS_GOOD)   // If the search didn't return
         // "good"
     {
+        uint32_t        rcode;
+        this_ret =
+            getdns_dict_get_int(this_response, "/replies_tree/0/header/rcode",
+                                &rcode);
+        if (this_ret != GETDNS_RETURN_GOOD) {
+            sprintf(msgbuf, "Cannot retrieve the DNS return code: %s (%d)",
+                    getdns_get_errorstr_by_id(this_ret), this_ret);
+            internal_error(msgbuf);
+        }
+        if (!accept_dns_errors) {
+            char           *rcode_text;
+            if (rcode != 0) {   /* https://www.iana.org/assignments/dns-parameters/dns-parameters.xml#dns-parameters-6 
+                                 */
+                switch (rcode) {
+                case 1:
+                    rcode_text = "FORMERR";
+                    break;
+                case 2:
+                    rcode_text = "SERVFAIL";
+                    break;
+                case 3:
+                    rcode_text = "NXDOMAIN";
+                    break;
+                case 4:
+                    rcode_text = "NOTIMP";
+                    break;
+                case 5:
+                    rcode_text = "REFUSED";
+                    break;
+                default:
+                    rcode_text = "(unreferenced)";
+                }
+                sprintf(msgbuf,
+                        "DNS return code in error \"%s\" (%d)", rcode_text, rcode);
+                error(msgbuf);
+            }
+        }
         sprintf(msgbuf,
                 "The search had no results, and a return value of \"%s\" (%d)",
                 getdns_get_errorstr_by_id(this_error), this_error);
