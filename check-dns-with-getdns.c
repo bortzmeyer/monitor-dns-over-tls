@@ -4,7 +4,7 @@ Requires getdns <https://getdnsapi.net/> >= 1.1
 
 Stéphane Bortzmeyer <bortzmeyer@nic.fr>
 
-with help from Willem Toorop <willem@nlnetlabs.nl> and the entire IETF
+with help from Willem Toorop <willem@nlnetlabs.nl>, Francis Dupont, Sara Dickinson and the entire IETF
 98 hackathon */
 
 /* TODO experimental, use autoconf or some other method to see if GNUtls is available. Set to 0 manually, in the time mebing, if you have no GNUtls. */
@@ -173,7 +173,6 @@ main(int argc, char **argv)
     int             c = 1;
     int             option = 0;
     char           *p, *tmp;
-    /* TODO: it exists with state OK if there is an invalid option */
     while (1) {
         c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:e", longopts, &option);
         if (c == -1 || c == EOF)
@@ -182,7 +181,8 @@ main(int argc, char **argv)
         switch (c) {
         case '?':              /* usage */
             usage("");
-            exit(STATE_OK);
+            exit(STATE_UNKNOWN);        /* Because getopt returns ? if there is an
+                                         * unknown option */
             break;
         case 'h':              /* help */
             usage("");          /* TODO more detailed help */
@@ -251,8 +251,8 @@ main(int argc, char **argv)
             exit(STATE_UNKNOWN);
 #endif
             break;
-        case 'H':              /* DNS Server to test. Must be an IP address. * * *
-                                 * * * * * check_dns uses it for the name to lookup */
+        case 'H':              /* DNS Server to test. Must be an IP address.
+                                 * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
                 if ((p = strstr(server_name, "]:")) != NULL)    /* [IPv6]:port */
@@ -434,8 +434,8 @@ main(int argc, char **argv)
         sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
                 getdns_get_errorstr_by_id(dns_request_return), dns_request_return,
                 lookup_name, server_name);
-        /* TODO * Most * of * the * time, * we * get * 1 * "generic * error". * Find 
-         * something * better */
+        /* TODO * Most of the time, we get 1 "generic error". Find something better 
+         */
         error(msgbuf);
     }
 
@@ -611,7 +611,7 @@ main(int argc, char **argv)
         error(msgbuf);
     }
     /* sprintf(msgbuf, "From %s got %s", server_name, msgbuf); TODO does not work */
-    success(msgbuf);            /* TODO display RTT */
+    success(msgbuf);
     getdns_dict_destroy(this_response);
 
     /* Clean up */
