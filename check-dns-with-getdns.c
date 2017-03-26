@@ -251,7 +251,7 @@ main(int argc, char **argv)
             exit(STATE_UNKNOWN);
 #endif
             break;
-        case 'H':              /* DNS Server to test. Must be an IP address.
+        case 'H':              /* DNS Server to test. Must be an IP address. *
                                  * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
@@ -434,8 +434,7 @@ main(int argc, char **argv)
         sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
                 getdns_get_errorstr_by_id(dns_request_return), dns_request_return,
                 lookup_name, server_name);
-        /* TODO * Most of the time, we get 1 "generic error". Find something better 
-         */
+        /* TODO * Most of the time, we get 1 "generic error". Find something better */
         error(msgbuf);
     }
 
@@ -454,7 +453,13 @@ main(int argc, char **argv)
         this_ret =
             getdns_dict_get_int(this_response, "/replies_tree/0/header/rcode",
                                 &rcode);
-        if (this_ret != GETDNS_RETURN_GOOD) {
+        if (this_ret == GETDNS_RETURN_NO_SUCH_DICT_NAME) {
+            /* Probably a timeout, so we got no reply at all */
+            sprintf(msgbuf,
+                    "The search had no results (timeout?), and a return value of \"%s\" (%d)",
+                    getdns_get_errorstr_by_id(this_error), this_error);
+            error(msgbuf);
+        } else if (this_ret != GETDNS_RETURN_GOOD) {
             sprintf(msgbuf, "Cannot retrieve the DNS return code: %s (%d)",
                     getdns_get_errorstr_by_id(this_ret), this_ret);
             internal_error(msgbuf);
@@ -486,11 +491,9 @@ main(int argc, char **argv)
                         "DNS return code in error \"%s\" (%d)", rcode_text, rcode);
                 error(msgbuf);
             }
+        } else {
+            /* OK, we can continue */
         }
-        sprintf(msgbuf,
-                "The search had no results, and a return value of \"%s\" (%d)",
-                getdns_get_errorstr_by_id(this_error), this_error);
-        error(msgbuf);
     }
     getdns_list    *report_list;
     this_ret = getdns_dict_get_list(this_response, "call_reporting", &report_list);
