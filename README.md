@@ -42,7 +42,7 @@ standard command-line arguments), `check_http.c` a more complete
 one. An advantage of using C is that we may rely on monitoring
 plugins' utilities such as the `np_net_ssl_check_cert()` function in
 `plugins/sslutils.c`, to check the expiration date (we actually used
-[GnuTLS]}(https://gnutls.org) services). To get the RTT,
+[GnuTLS](https://gnutls.org) services). To get the RTT,
 getdns can do it (`return_call_reporting` extension).
 
 
