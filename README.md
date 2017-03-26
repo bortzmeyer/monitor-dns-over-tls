@@ -23,7 +23,7 @@ a
 see how to extract key and cert info from a session (parse the `conn`
 object? See [HTTP package](https://golang.org/pkg/net/http) to be
 sure. With the help of
-te [TLS package](https://golang.org/pkg/crypto/tls/)?). TODO: what are
+the [TLS package](https://golang.org/pkg/crypto/tls/)?). TODO: what are
 the policy rules for the monitoring plugins project? (See the `CODING`
 file in the source distribution, it is mostly source code presentation
 details.) Do they accept
@@ -46,7 +46,7 @@ plugins' utilities such as the `np_net_ssl_check_cert()` function in
 getdns can do it (`return_call_reporting` extension).
 
 
-## Requirments
+## Requirements
 
 Must be able to specify: resolver, of course, but also DNS query name,
 DNS Query Type, expiration date for the cert (like the
