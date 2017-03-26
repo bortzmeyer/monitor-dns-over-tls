@@ -57,6 +57,10 @@ int             server_port = 853;
 char            server_port_text[6] = "";
 char           *lookup_name = NULL;
 char           *server_name = NULL;
+int             require_authentication = FALSE;
+int             authenticate = FALSE;
+getdns_dict    *keys;
+char           *raw_keys;
 #if USE_GNUTLS
 int             check_cert = FALSE;
 int             days_till_exp_warn, days_till_exp_crit;
@@ -157,6 +161,9 @@ main(int argc, char **argv)
         {"port", required_argument, 0, 'p'},    /* TODO actually implement it */
         {"hostname", required_argument, 0, 'H'},
         {"name", required_argument, 0, 'n'},
+        {"require_authentication", no_argument, 0, 'r'},
+        {"authenticate", no_argument, 0, 'a'},
+        {"keys", required_argument, 0, 'k'},
         {"certificate", required_argument, 0, 'C'},
         {0, 0, 0, 0}
     };
@@ -165,7 +172,7 @@ main(int argc, char **argv)
     int             option = 0;
     char           *p, *tmp;
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -181,8 +188,16 @@ main(int argc, char **argv)
         case 'd':              /* debug */
             debug = TRUE;
             break;
+        case 'r':              /* Require authentication of the TLS server */
+            require_authentication = TRUE;
+            break;
+        case 'a':              /* Test there is authentication of the TLS server */
+            authenticate = TRUE;
+            break;
         case 'V':              /* version */
-            usage("TODO not yet implemented.");
+            sprintf(msgbuf, "getdns %s, API %s.", getdns_get_version(),
+                    getdns_get_api_version());
+            usage(msgbuf);
             exit(STATE_OK);
             break;
         case 'n':              /* Name to lookup */
@@ -231,7 +246,7 @@ main(int argc, char **argv)
 #endif
             break;
         case 'H':              /* DNS Server to test. Must be an IP address. * * *
-                                 * * check_dns uses it for the name to lookup */
+                                 * * * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
                 if ((p = strstr(server_name, "]:")) != NULL)    /* [IPv6]:port */
@@ -242,7 +257,10 @@ main(int argc, char **argv)
                                                                                                  */
                 server_port = atoi(p);
             break;
-        case 'p':              /* Server port */
+        case 'k':
+            raw_keys = strdup(optarg);
+            break;
+        case 'p':              /* Server port TODO not yet implemented */
             if (!is_intnonneg(optarg)) {
                 sprintf(msgbuf, "Invalid port number %s.", optarg);
                 usage(msgbuf);
@@ -272,7 +290,6 @@ main(int argc, char **argv)
 
     /* Set up the getdns call */
     getdns_dict    *this_response;
-
     getdns_dict    *this_resolver = getdns_dict_create();
     getdns_return_t process_return = getdns_str2dict(server_name, &this_resolver);      /* str2dict
                                                                                          * *
@@ -297,6 +314,65 @@ main(int argc, char **argv)
         sprintf(msgbuf, "Unable to set TLS transport: %s (%d).",
                 getdns_get_errorstr_by_id(transport_return), transport_return);
         internal_error(msgbuf);
+    }
+
+    /* Authentication */
+    if (require_authentication || authenticate) {
+        if (raw_keys == NULL) {
+            sprintf(msgbuf, "To authenticate, I need keys! (option -k)");       /* TODO: 
+                                                                                 * this 
+                                                                                 * will 
+                                                                                 * change 
+                                                                                 * with 
+                                                                                 * the 
+                                                                                 * future 
+                                                                                 * auth. 
+                                                                                 * profils, 
+                                                                                 * using 
+                                                                                 * things 
+                                                                                 * like 
+                                                                                 * PKIX 
+                                                                                 * validation 
+                                                                                 */
+            internal_error(msgbuf);
+        }
+    }
+    if (raw_keys != NULL) {
+        keys = getdns_pubkey_pin_create_from_string(this_context, raw_keys);
+        if (keys == NULL) {
+            sprintf(msgbuf, "Cannot parse keys \"%s\"", raw_keys);
+            internal_error(msgbuf);
+        }
+        getdns_list    *keys_list = getdns_list_create();
+        getdns_list_set_dict(keys_list, 0, keys);
+        getdns_return_t set_auth_return;
+#if 0
+        getdns_list    *keys_errors = getdns_list_create();
+        set_auth_return = getdns_pubkey_pinset_sanity_check(keys_list, keys_errors);
+        if (set_auth_return != GETDNS_RETURN_GOOD) {
+            sprintf(msgbuf, "Something is wrong in keys %s: %s (%d), %s", raw_keys,
+                    getdns_get_errorstr_by_id(set_auth_return), set_auth_return,
+                    getdns_pretty_print_list(keys_errors));
+            internal_error(msgbuf);
+        }
+#endif
+        set_auth_return =
+            getdns_dict_set_list(this_resolver, "tls_pubkey_pinset", keys_list);
+        if (set_auth_return != GETDNS_RETURN_GOOD) {
+            sprintf(msgbuf, "Unable to set keys for %s: %s (%d)", server_name,
+                    getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
+            internal_error(msgbuf);
+        }
+        if (require_authentication) {
+            set_auth_return =
+                getdns_context_set_tls_authentication(this_context,
+                                                      GETDNS_AUTHENTICATION_REQUIRED);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Unable to set authentication: %s (%d)",
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
+                internal_error(msgbuf);
+            }
+        }
     }
 
     /* Set upstream resolver to the thing we want to test */
@@ -349,8 +425,8 @@ main(int argc, char **argv)
         sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
                 getdns_get_errorstr_by_id(dns_request_return), dns_request_return,
                 lookup_name, server_name);
-        /* TODO * Most * of * the * time, * we * get * 1 * "generic *
-         * error". * Find * something * better */
+        /* TODO * Most * of * the * time, * we * get * 1 * "generic * error". * Find 
+         * something * better */
         error(msgbuf);
     }
 
@@ -386,14 +462,27 @@ main(int argc, char **argv)
                 getdns_get_errorstr_by_id(this_ret), this_ret);
         internal_error(msgbuf);
     }
+    getdns_bindata *auth_status;
+    this_ret = getdns_dict_get_bindata(report_dict, "tls_auth_status", &auth_status);
+    if (this_ret != GETDNS_RETURN_GOOD) {
+        sprintf(msgbuf,
+                "Trying to get the TLS authentication status certificate failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
+        internal_error(msgbuf);
+    }
+    auth_status->data[auth_status->size] = '\0';        /* Is it really necessary?
+                                                         * getdns guarantees a nul
+                                                         * at the end? */
+#if USE_GNUTLS
     getdns_bindata *cert;
+    /* Requires getdns >= 1.1, otherwise, we get back a "A helper function for dicts 
+     * had a name argument that for a name that is not in the dict. (305)" */
     this_ret = getdns_dict_get_bindata(report_dict, "tls_peer_cert", &cert);
     if (this_ret != GETDNS_RETURN_GOOD) {
         sprintf(msgbuf, "Trying to get the PKIX certificate failed: %s (%d)\n",
                 getdns_get_errorstr_by_id(this_ret), this_ret);
         internal_error(msgbuf);
     }
-#if USE_GNUTLS
     gnutls_x509_crt_t parsed_cert;
     int             gnutls_return;
     gnutls_return = gnutls_x509_crt_init(&parsed_cert);
@@ -454,7 +543,8 @@ main(int argc, char **argv)
 #if USE_GNUTLS
     struct tm      *f_time = gmtime(&expiration_time);
     strftime(msgbuf2, 1000, "%Y-%m-%d", f_time);
-    sprintf(msgbuf, "%d ms, expiration date %s: ", rtt, msgbuf2);
+    sprintf(msgbuf, "%d ms, expiration date %s, auth. %s: ", rtt, msgbuf2,
+            (char *) auth_status->data);
 #else
     sprintf(msgbuf, "%d ms: ", rtt);
 #endif
@@ -470,6 +560,9 @@ main(int argc, char **argv)
         char           *this_address_str =
             getdns_display_ip_address(this_address_data);
         sprintf(msgbuf, "%s Address %s", msgbuf, this_address_str);
+    }
+    if (authenticate && (strcmp((char *) auth_status->data, "Success")) != 0) {
+        error(msgbuf);
     }
     /* sprintf(msgbuf, "From %s got %s", server_name, msgbuf); TODO does not work */
     success(msgbuf);            /* TODO display RTT */
