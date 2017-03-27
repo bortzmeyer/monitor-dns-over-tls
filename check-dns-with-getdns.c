@@ -251,7 +251,7 @@ main(int argc, char **argv)
             exit(STATE_UNKNOWN);
 #endif
             break;
-        case 'H':              /* DNS Server to test. Must be an IP address. *
+        case 'H':              /* DNS Server to test. Must be an IP address. * *
                                  * check_dns uses it for the name to lookup */
             server_name = strdup(optarg);
             if (server_name[0] == '[') {
@@ -453,7 +453,8 @@ main(int argc, char **argv)
         this_ret =
             getdns_dict_get_int(this_response, "/replies_tree/0/header/rcode",
                                 &rcode);
-        if (this_ret == GETDNS_RETURN_NO_SUCH_DICT_NAME) {
+        if (this_ret == GETDNS_RETURN_NO_SUCH_DICT_NAME
+            || this_ret == GETDNS_RETURN_NO_SUCH_LIST_ITEM) {
             /* Probably a timeout, so we got no reply at all */
             sprintf(msgbuf,
                     "The search had no results (timeout?), and a return value of \"%s\" (%d)",
