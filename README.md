@@ -1,6 +1,9 @@
 # monitor-dns-over-tls
 Monitoring plugins for DNS-over-TLS servers
 
+**The results of the project have been
+[documented on my blog](http://www.bortzmeyer.org/monitor-dns-over-tls.html)**
+
 A project for the [IETF 98 Hackathon](https://www.ietf.org/hackathon/98-hackathon.html).
 
 DNS-over-TLS is specified in
