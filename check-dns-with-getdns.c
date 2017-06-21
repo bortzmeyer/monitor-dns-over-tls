@@ -62,6 +62,7 @@ int             authenticate = FALSE;
 int             accept_dns_errors = TRUE;
 getdns_dict    *keys;
 char           *raw_keys;
+char           *auth_name;
 #if USE_GNUTLS
 int             check_cert = FALSE;
 int             days_till_exp_warn, days_till_exp_crit;
@@ -166,6 +167,7 @@ main(int argc, char **argv)
         {"authenticate", no_argument, 0, 'a'},
         {"accept_dns_errors", no_argument, 0, 'e'},
         {"keys", required_argument, 0, 'k'},
+        {"authname", required_argument, 0, 'A'},
         {"certificate", required_argument, 0, 'C'},
         {0, 0, 0, 0}
     };
@@ -174,7 +176,7 @@ main(int argc, char **argv)
     int             option = 0;
     char           *p, *tmp;
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:e", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:A:e", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -266,6 +268,9 @@ main(int argc, char **argv)
         case 'k':
             raw_keys = strdup(optarg);
             break;
+        case 'A':              /* TLS auth name */
+            auth_name = strdup(optarg);
+            break;
         case 'p':              /* Server port TODO not yet implemented */
             if (!is_intnonneg(optarg)) {
                 sprintf(msgbuf, "Invalid port number %s.", optarg);
@@ -327,8 +332,8 @@ main(int argc, char **argv)
 
     /* Authentication */
     if (require_authentication || authenticate) {
-        if (raw_keys == NULL) {
-            sprintf(msgbuf, "To authenticate, I need keys! (option -k)");       /* TODO: 
+        if (raw_keys == NULL && auth_name == NULL) {
+            sprintf(msgbuf, "To authenticate, I need keys (option -k) or auth name (option -A)");       /* TODO: 
                                                                                  * this 
                                                                                  * will 
                                                                                  * change 
@@ -346,31 +351,45 @@ main(int argc, char **argv)
             internal_error(msgbuf);
         }
     }
-    if (raw_keys != NULL) {
-        keys = getdns_pubkey_pin_create_from_string(this_context, raw_keys);
-        if (keys == NULL) {
-            sprintf(msgbuf, "Cannot parse keys \"%s\"", raw_keys);
-            internal_error(msgbuf);
-        }
-        getdns_list    *keys_list = getdns_list_create();
-        getdns_list_set_dict(keys_list, 0, keys);
+    if (raw_keys != NULL || auth_name != NULL) {
         getdns_return_t set_auth_return;
+        
+        if (raw_keys != NULL) {
+            keys = getdns_pubkey_pin_create_from_string(this_context, raw_keys);
+            if (keys == NULL) {
+                sprintf(msgbuf, "Cannot parse keys \"%s\"", raw_keys);
+                internal_error(msgbuf);
+            }
+            getdns_list    *keys_list = getdns_list_create();
+            getdns_list_set_dict(keys_list, 0, keys);
 #if 0
-        getdns_list    *keys_errors = getdns_list_create();
-        set_auth_return = getdns_pubkey_pinset_sanity_check(keys_list, keys_errors);
-        if (set_auth_return != GETDNS_RETURN_GOOD) {
-            sprintf(msgbuf, "Something is wrong in keys %s: %s (%d), %s", raw_keys,
-                    getdns_get_errorstr_by_id(set_auth_return), set_auth_return,
-                    getdns_pretty_print_list(keys_errors));
-            internal_error(msgbuf);
-        }
+            getdns_list    *keys_errors = getdns_list_create();
+            set_auth_return = getdns_pubkey_pinset_sanity_check(keys_list, keys_errors);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Something is wrong in keys %s: %s (%d), %s", raw_keys,
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return,
+                        getdns_pretty_print_list(keys_errors));
+                internal_error(msgbuf);
+            }
 #endif
-        set_auth_return =
-            getdns_dict_set_list(this_resolver, "tls_pubkey_pinset", keys_list);
-        if (set_auth_return != GETDNS_RETURN_GOOD) {
-            sprintf(msgbuf, "Unable to set keys for %s: %s (%d)", server_name,
-                    getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
-            internal_error(msgbuf);
+            set_auth_return =
+                getdns_dict_set_list(this_resolver, "tls_pubkey_pinset", keys_list);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Unable to set keys for %s: %s (%d)", server_name,
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
+                internal_error(msgbuf);
+            }
+        } else {
+            getdns_bindata authname_bindata;
+            authname_bindata.size = strlen(auth_name);
+            authname_bindata.data = auth_name;
+            set_auth_return =
+                getdns_dict_set_bindata(this_resolver, "tls_auth_name", &authname_bindata);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Unable to set auth name for %s: %s (%d)", server_name,
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
+                internal_error(msgbuf);
+            }
         }
         if (require_authentication) {
             set_auth_return =
