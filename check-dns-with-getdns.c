@@ -689,7 +689,24 @@ main(int argc, char **argv)
         error(msgbuf);
     }
     /* sprintf(msgbuf, "From %s got %s", server_name, msgbuf); TODO does not work */
-    success(msgbuf);
+    switch (exit_status)
+    {
+    case STATE_OK:
+        success(msgbuf);
+        break;
+
+    case STATE_WARNING:
+        warning(msgbuf);
+        break;
+
+    case STATE_CRITICAL:
+        error(msgbuf);
+        break;
+
+    case STATE_UNKNOWN:
+        internal_error(msgbuf);
+        break;
+    }
     getdns_dict_destroy(this_response);
 
     /* Clean up */
