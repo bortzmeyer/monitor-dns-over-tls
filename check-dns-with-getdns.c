@@ -55,8 +55,8 @@ int             debug = FALSE;
 int             specify_port = FALSE;
 int             server_port = 853;
 char            server_port_text[6] = "";
-char           *lookup_name = NULL;
-char           *server_name = NULL;
+const char     *lookup_name = NULL;
+const char     *server_name = NULL;
 int             require_authentication = FALSE;
 int             authenticate = FALSE;
 int             accept_dns_errors = TRUE;
@@ -66,6 +66,8 @@ char           *raw_keys;
 int             check_cert = FALSE;
 int             days_till_exp_warn, days_till_exp_crit;
 #endif
+int             check_qname_minimisation = FALSE;
+const char      *qname_minimisation_check_host = "qnamemintest.internet.nl";
 
 /* TODO use monitoring plugins utils.c instead */
 int
@@ -167,6 +169,7 @@ main(int argc, char **argv)
         {"accept_dns_errors", no_argument, 0, 'e'},
         {"keys", required_argument, 0, 'k'},
         {"certificate", required_argument, 0, 'C'},
+        {"qname_minimisation", no_argument, 0, 'q'},
         {0, 0, 0, 0}
     };
 
@@ -174,7 +177,7 @@ main(int argc, char **argv)
     int             option = 0;
     char           *p, *tmp;
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:e", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:eq", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -200,6 +203,14 @@ main(int argc, char **argv)
         case 'e':              /* Regard NXDOMAIN or SERVFAIL as critical errors */
             accept_dns_errors = FALSE;
             break;
+        case 'q':              /* Check if resolver does qname minimisation */
+            if ( lookup_name ) {
+                usage("Can't specify -n and -q together");
+                exit(STATE_UNKNOWN);
+            }
+            check_qname_minimisation = TRUE;
+            lookup_name = qname_minimisation_check_host;
+            break;
         case 'V':              /* version */
             sprintf(msgbuf, "getdns %s, API %s.", getdns_get_version(),
                     getdns_get_api_version());
@@ -207,6 +218,10 @@ main(int argc, char **argv)
             exit(STATE_OK);
             break;
         case 'n':              /* Name to lookup */
+            if ( lookup_name ) {
+                usage("Can't specify -n and -q together");
+                exit(STATE_UNKNOWN);
+            }
             lookup_name = strdup(optarg);
             break;
         case 'C':              /* Check PKIX cert validity */
@@ -429,9 +444,12 @@ main(int argc, char **argv)
         getdns_dict_set_int(extensions, "return_both_v4_and_v6",
                             GETDNS_EXTENSION_TRUE);
 
+    uint16_t request_type =
+        check_qname_minimisation ? GETDNS_RRTYPE_TXT : GETDNS_RRTYPE_AAAA;
+
     /* Make the call */
     getdns_return_t dns_request_return =
-        getdns_general_sync(this_context, lookup_name, GETDNS_RRTYPE_AAAA,
+        getdns_general_sync(this_context, lookup_name, request_type,
                             extensions, &this_response);
     if (dns_request_return != GETDNS_RETURN_GOOD) {
         sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
@@ -576,23 +594,6 @@ main(int argc, char **argv)
         }
     }
 #endif
-    getdns_list    *just_the_addresses_ptr;     /* TODO allow to specify other DNS
-                                                 * types */
-    this_ret =
-        getdns_dict_get_list(this_response, "just_address_answers",
-                             &just_the_addresses_ptr);
-    if (this_ret != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Trying to get the answers failed: %s (%d)\n",
-                getdns_get_errorstr_by_id(this_ret), this_ret);
-        internal_error(msgbuf);
-    }
-    size_t          num_addresses;
-    this_ret = getdns_list_get_length(just_the_addresses_ptr, &num_addresses);
-    if (num_addresses <= 0) {
-        sprintf(msgbuf, "Got zero IP addresses for %s", lookup_name);
-        warning(msgbuf);
-    }
-    /* Go through each record */
 #if USE_GNUTLS
     struct tm      *f_time = gmtime(&expiration_time);
     strftime(msgbuf2, 1000, "%Y-%m-%d", f_time);
@@ -601,18 +602,69 @@ main(int argc, char **argv)
 #else
     sprintf(msgbuf, "%d ms: ", rtt);
 #endif
-    for (size_t rec_count = 0; rec_count < num_addresses; ++rec_count) {
-        getdns_dict    *this_address;
+
+    getdns_list    *answers;
+    this_ret =
+        getdns_dict_get_list(this_response,
+                             check_qname_minimisation
+                             ? "/replies_tree/0/answer"
+                             : "just_address_answers",
+                             &answers);
+    if (this_ret != GETDNS_RETURN_GOOD) {
+        sprintf(msgbuf, "Trying to get the answers failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
+        internal_error(msgbuf);
+    }
+
+    size_t          num_answers;
+    this_ret = getdns_list_get_length(answers, &num_answers);
+    if (num_answers <= 0) {
+        sprintf(msgbuf, "Got zero answers for %s", lookup_name);
+        warning(msgbuf);
+    }
+    /* Go through each record */
+    int exit_status = check_qname_minimisation ? STATE_UNKNOWN : STATE_OK;
+    for (size_t rec_count = 0; rec_count < num_answers; ++rec_count) {
+        getdns_dict    *this_answer;
         this_ret =
-            getdns_list_get_dict(just_the_addresses_ptr, rec_count, &this_address);
-        /* Just get the address */
-        getdns_bindata *this_address_data;
-        this_ret =
-            getdns_dict_get_bindata(this_address, "address_data",
-                                    &this_address_data);
-        char           *this_address_str =
-            getdns_display_ip_address(this_address_data);
-        sprintf(msgbuf, "%s Address %s", msgbuf, this_address_str);
+            getdns_list_get_dict(answers, rec_count, &this_answer);
+        if ( check_qname_minimisation ) {
+            uint32_t    typ;
+            this_ret = getdns_dict_get_int(this_answer, "type", &typ);
+            if ( this_ret != GETDNS_RETURN_GOOD || typ != GETDNS_RRTYPE_TXT )
+                continue;
+
+            getdns_bindata *txt;
+            this_ret = getdns_dict_get_bindata(this_answer, "/rdata/txt_strings/0", &txt);
+            if ( this_ret != GETDNS_RETURN_GOOD ) {
+                warning("no qname minimisation data");
+            } else if ( txt->size > 0 ) {
+                switch (txt->data[0]) {
+                case 'H':
+                    sprintf(msgbuf, "%s Resolver QNAME minimisation ON", msgbuf);
+                    exit_status = STATE_OK;
+                    break;
+
+                case 'N':
+                    sprintf(msgbuf, "%s Resolver QNAME minimisation OFF", msgbuf);
+                    exit_status = STATE_WARNING;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+            break;
+        } else {
+            /* Just get the address */
+            getdns_bindata *this_address_data;
+            this_ret =
+                getdns_dict_get_bindata(this_answer, "address_data",
+                                        &this_address_data);
+            char           *this_address_str =
+                getdns_display_ip_address(this_address_data);
+            sprintf(msgbuf, "%s Address %s", msgbuf, this_address_str);
+        }
     }
     if (authenticate && (strcmp((char *) auth_status->data, "Success")) != 0) {
         error(msgbuf);
@@ -624,5 +676,5 @@ main(int argc, char **argv)
     /* Clean up */
     getdns_context_destroy(this_context);
     /* Assuming we get here, leave gracefully */
-    exit(EXIT_SUCCESS);
+    exit(exit_status);
 }
