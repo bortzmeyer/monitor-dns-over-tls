@@ -425,10 +425,13 @@ main(int argc, char **argv)
                getdns_pretty_print_dict(getdns_context_get_api_information
                                         (this_context)));
     }
+    process_return =
+        getdns_dict_set_int(extensions, "return_both_v4_and_v6",
+                            GETDNS_EXTENSION_TRUE);
 
     /* Make the call */
     getdns_return_t dns_request_return =
-        getdns_address_sync(this_context, lookup_name,
+        getdns_general_sync(this_context, lookup_name, GETDNS_RRTYPE_AAAA,
                             extensions, &this_response);
     if (dns_request_return != GETDNS_RETURN_GOOD) {
         sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
