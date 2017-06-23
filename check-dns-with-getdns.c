@@ -55,17 +55,20 @@ int             debug = FALSE;
 int             specify_port = FALSE;
 int             server_port = 853;
 char            server_port_text[6] = "";
-char           *lookup_name = NULL;
-char           *server_name = NULL;
+const char     *lookup_name = NULL;
+const char     *server_name = NULL;
 int             require_authentication = FALSE;
 int             authenticate = FALSE;
 int             accept_dns_errors = TRUE;
 getdns_dict    *keys;
 char           *raw_keys;
+char           *auth_name;
 #if USE_GNUTLS
 int             check_cert = FALSE;
 int             days_till_exp_warn, days_till_exp_crit;
 #endif
+int             check_qname_minimisation = FALSE;
+const char      *qname_minimisation_check_host = "qnamemintest.internet.nl";
 
 /* TODO use monitoring plugins utils.c instead */
 int
@@ -166,7 +169,9 @@ main(int argc, char **argv)
         {"authenticate", no_argument, 0, 'a'},
         {"accept_dns_errors", no_argument, 0, 'e'},
         {"keys", required_argument, 0, 'k'},
+        {"authname", required_argument, 0, 'A'},
         {"certificate", required_argument, 0, 'C'},
+        {"qname_minimisation", no_argument, 0, 'q'},
         {0, 0, 0, 0}
     };
 
@@ -174,7 +179,7 @@ main(int argc, char **argv)
     int             option = 0;
     char           *p, *tmp;
     while (1) {
-        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:e", longopts, &option);
+        c = getopt_long(argc, argv, "Vvh?hdH:n:p:C:ark:A:eq", longopts, &option);
         if (c == -1 || c == EOF)
             break;
 
@@ -200,6 +205,14 @@ main(int argc, char **argv)
         case 'e':              /* Regard NXDOMAIN or SERVFAIL as critical errors */
             accept_dns_errors = FALSE;
             break;
+        case 'q':              /* Check if resolver does qname minimisation */
+            if ( lookup_name ) {
+                usage("Can't specify -n and -q together");
+                exit(STATE_UNKNOWN);
+            }
+            check_qname_minimisation = TRUE;
+            lookup_name = qname_minimisation_check_host;
+            break;
         case 'V':              /* version */
             sprintf(msgbuf, "getdns %s, API %s.", getdns_get_version(),
                     getdns_get_api_version());
@@ -207,6 +220,10 @@ main(int argc, char **argv)
             exit(STATE_OK);
             break;
         case 'n':              /* Name to lookup */
+            if ( lookup_name ) {
+                usage("Can't specify -n and -q together");
+                exit(STATE_UNKNOWN);
+            }
             lookup_name = strdup(optarg);
             break;
         case 'C':              /* Check PKIX cert validity */
@@ -265,6 +282,9 @@ main(int argc, char **argv)
             break;
         case 'k':
             raw_keys = strdup(optarg);
+            break;
+        case 'A':              /* TLS auth name */
+            auth_name = strdup(optarg);
             break;
         case 'p':              /* Server port TODO not yet implemented */
             if (!is_intnonneg(optarg)) {
@@ -327,8 +347,8 @@ main(int argc, char **argv)
 
     /* Authentication */
     if (require_authentication || authenticate) {
-        if (raw_keys == NULL) {
-            sprintf(msgbuf, "To authenticate, I need keys! (option -k)");       /* TODO: 
+        if (raw_keys == NULL && auth_name == NULL) {
+            sprintf(msgbuf, "To authenticate, I need keys (option -k) or auth name (option -A)");       /* TODO: 
                                                                                  * this 
                                                                                  * will 
                                                                                  * change 
@@ -346,31 +366,45 @@ main(int argc, char **argv)
             internal_error(msgbuf);
         }
     }
-    if (raw_keys != NULL) {
-        keys = getdns_pubkey_pin_create_from_string(this_context, raw_keys);
-        if (keys == NULL) {
-            sprintf(msgbuf, "Cannot parse keys \"%s\"", raw_keys);
-            internal_error(msgbuf);
-        }
-        getdns_list    *keys_list = getdns_list_create();
-        getdns_list_set_dict(keys_list, 0, keys);
+    if (raw_keys != NULL || auth_name != NULL) {
         getdns_return_t set_auth_return;
+        
+        if (raw_keys != NULL) {
+            keys = getdns_pubkey_pin_create_from_string(this_context, raw_keys);
+            if (keys == NULL) {
+                sprintf(msgbuf, "Cannot parse keys \"%s\"", raw_keys);
+                internal_error(msgbuf);
+            }
+            getdns_list    *keys_list = getdns_list_create();
+            getdns_list_set_dict(keys_list, 0, keys);
 #if 0
-        getdns_list    *keys_errors = getdns_list_create();
-        set_auth_return = getdns_pubkey_pinset_sanity_check(keys_list, keys_errors);
-        if (set_auth_return != GETDNS_RETURN_GOOD) {
-            sprintf(msgbuf, "Something is wrong in keys %s: %s (%d), %s", raw_keys,
-                    getdns_get_errorstr_by_id(set_auth_return), set_auth_return,
-                    getdns_pretty_print_list(keys_errors));
-            internal_error(msgbuf);
-        }
+            getdns_list    *keys_errors = getdns_list_create();
+            set_auth_return = getdns_pubkey_pinset_sanity_check(keys_list, keys_errors);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Something is wrong in keys %s: %s (%d), %s", raw_keys,
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return,
+                        getdns_pretty_print_list(keys_errors));
+                internal_error(msgbuf);
+            }
 #endif
-        set_auth_return =
-            getdns_dict_set_list(this_resolver, "tls_pubkey_pinset", keys_list);
-        if (set_auth_return != GETDNS_RETURN_GOOD) {
-            sprintf(msgbuf, "Unable to set keys for %s: %s (%d)", server_name,
-                    getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
-            internal_error(msgbuf);
+            set_auth_return =
+                getdns_dict_set_list(this_resolver, "tls_pubkey_pinset", keys_list);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Unable to set keys for %s: %s (%d)", server_name,
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
+                internal_error(msgbuf);
+            }
+        } else {
+            getdns_bindata authname_bindata;
+            authname_bindata.size = strlen(auth_name);
+            authname_bindata.data = auth_name;
+            set_auth_return =
+                getdns_dict_set_bindata(this_resolver, "tls_auth_name", &authname_bindata);
+            if (set_auth_return != GETDNS_RETURN_GOOD) {
+                sprintf(msgbuf, "Unable to set auth name for %s: %s (%d)", server_name,
+                        getdns_get_errorstr_by_id(set_auth_return), set_auth_return);
+                internal_error(msgbuf);
+            }
         }
         if (require_authentication) {
             set_auth_return =
@@ -425,10 +459,16 @@ main(int argc, char **argv)
                getdns_pretty_print_dict(getdns_context_get_api_information
                                         (this_context)));
     }
+    process_return =
+        getdns_dict_set_int(extensions, "return_both_v4_and_v6",
+                            GETDNS_EXTENSION_TRUE);
+
+    uint16_t request_type =
+        check_qname_minimisation ? GETDNS_RRTYPE_TXT : GETDNS_RRTYPE_AAAA;
 
     /* Make the call */
     getdns_return_t dns_request_return =
-        getdns_address_sync(this_context, lookup_name,
+        getdns_general_sync(this_context, lookup_name, request_type,
                             extensions, &this_response);
     if (dns_request_return != GETDNS_RETURN_GOOD) {
         sprintf(msgbuf, "Error %s (%d) when resolving %s at %s",
@@ -573,23 +613,6 @@ main(int argc, char **argv)
         }
     }
 #endif
-    getdns_list    *just_the_addresses_ptr;     /* TODO allow to specify other DNS
-                                                 * types */
-    this_ret =
-        getdns_dict_get_list(this_response, "just_address_answers",
-                             &just_the_addresses_ptr);
-    if (this_ret != GETDNS_RETURN_GOOD) {
-        sprintf(msgbuf, "Trying to get the answers failed: %s (%d)\n",
-                getdns_get_errorstr_by_id(this_ret), this_ret);
-        internal_error(msgbuf);
-    }
-    size_t          num_addresses;
-    this_ret = getdns_list_get_length(just_the_addresses_ptr, &num_addresses);
-    if (num_addresses <= 0) {
-        sprintf(msgbuf, "Got zero IP addresses for %s", lookup_name);
-        warning(msgbuf);
-    }
-    /* Go through each record */
 #if USE_GNUTLS
     struct tm      *f_time = gmtime(&expiration_time);
     strftime(msgbuf2, 1000, "%Y-%m-%d", f_time);
@@ -598,28 +621,96 @@ main(int argc, char **argv)
 #else
     sprintf(msgbuf, "%d ms: ", rtt);
 #endif
-    for (size_t rec_count = 0; rec_count < num_addresses; ++rec_count) {
-        getdns_dict    *this_address;
+
+    getdns_list    *answers;
+    this_ret =
+        getdns_dict_get_list(this_response,
+                             check_qname_minimisation
+                             ? "/replies_tree/0/answer"
+                             : "just_address_answers",
+                             &answers);
+    if (this_ret != GETDNS_RETURN_GOOD) {
+        sprintf(msgbuf, "Trying to get the answers failed: %s (%d)\n",
+                getdns_get_errorstr_by_id(this_ret), this_ret);
+        internal_error(msgbuf);
+    }
+
+    size_t          num_answers;
+    this_ret = getdns_list_get_length(answers, &num_answers);
+    if (num_answers <= 0) {
+        sprintf(msgbuf, "Got zero answers for %s", lookup_name);
+        warning(msgbuf);
+    }
+    /* Go through each record */
+    int exit_status = check_qname_minimisation ? STATE_UNKNOWN : STATE_OK;
+    for (size_t rec_count = 0; rec_count < num_answers; ++rec_count) {
+        getdns_dict    *this_answer;
         this_ret =
-            getdns_list_get_dict(just_the_addresses_ptr, rec_count, &this_address);
-        /* Just get the address */
-        getdns_bindata *this_address_data;
-        this_ret =
-            getdns_dict_get_bindata(this_address, "address_data",
-                                    &this_address_data);
-        char           *this_address_str =
-            getdns_display_ip_address(this_address_data);
-        sprintf(msgbuf, "%s Address %s", msgbuf, this_address_str);
+            getdns_list_get_dict(answers, rec_count, &this_answer);
+        if ( check_qname_minimisation ) {
+            uint32_t    typ;
+            this_ret = getdns_dict_get_int(this_answer, "type", &typ);
+            if ( this_ret != GETDNS_RETURN_GOOD || typ != GETDNS_RRTYPE_TXT )
+                continue;
+
+            getdns_bindata *txt;
+            this_ret = getdns_dict_get_bindata(this_answer, "/rdata/txt_strings/0", &txt);
+            if ( this_ret != GETDNS_RETURN_GOOD ) {
+                warning("no qname minimisation data");
+            } else if ( txt->size > 0 ) {
+                switch (txt->data[0]) {
+                case 'H':
+                    sprintf(msgbuf, "%s Resolver QNAME minimisation ON", msgbuf);
+                    exit_status = STATE_OK;
+                    break;
+
+                case 'N':
+                    sprintf(msgbuf, "%s Resolver QNAME minimisation OFF", msgbuf);
+                    exit_status = STATE_WARNING;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+            break;
+        } else {
+            /* Just get the address */
+            getdns_bindata *this_address_data;
+            this_ret =
+                getdns_dict_get_bindata(this_answer, "address_data",
+                                        &this_address_data);
+            char           *this_address_str =
+                getdns_display_ip_address(this_address_data);
+            sprintf(msgbuf, "%s Address %s", msgbuf, this_address_str);
+        }
     }
     if (authenticate && (strcmp((char *) auth_status->data, "Success")) != 0) {
         error(msgbuf);
     }
     /* sprintf(msgbuf, "From %s got %s", server_name, msgbuf); TODO does not work */
-    success(msgbuf);
+    switch (exit_status)
+    {
+    case STATE_OK:
+        success(msgbuf);
+        break;
+
+    case STATE_WARNING:
+        warning(msgbuf);
+        break;
+
+    case STATE_CRITICAL:
+        error(msgbuf);
+        break;
+
+    case STATE_UNKNOWN:
+        internal_error(msgbuf);
+        break;
+    }
     getdns_dict_destroy(this_response);
 
     /* Clean up */
     getdns_context_destroy(this_context);
     /* Assuming we get here, leave gracefully */
-    exit(EXIT_SUCCESS);
+    exit(exit_status);
 }
